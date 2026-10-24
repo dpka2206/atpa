@@ -29,6 +29,13 @@ type Props = {
   tournamentId?: string;
 };
 
+function normalizeRegistration(raw: Registration): Registration {
+  return {
+    ...raw,
+    _id: String(raw._id),
+  };
+}
+
 export function RegistrationsPanel({ tournamentId }: Props) {
   const [rows, setRows] = useState<Registration[]>([]);
   const [q, setQ] = useState("");
@@ -37,7 +44,9 @@ export function RegistrationsPanel({ tournamentId }: Props) {
   const [selected, setSelected] = useState<Registration | null>(null);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,7 +57,13 @@ export function RegistrationsPanel({ tournamentId }: Props) {
     if (paymentStatus) params.set("paymentStatus", paymentStatus);
     const res = await fetch(`/api/admin/registrations?${params}`);
     const data = await res.json();
-    setRows(data.registrations || []);
+    const list = (data.registrations || []).map(normalizeRegistration);
+    setRows(list);
+    setSelected((prev) => {
+      if (!prev) return null;
+      const match = list.find((r: Registration) => r._id === String(prev._id));
+      return match || prev;
+    });
     setLoading(false);
   }, [tournamentId, q, registrationStatus, paymentStatus]);
 
@@ -60,20 +75,33 @@ export function RegistrationsPanel({ tournamentId }: Props) {
     id: string,
     body: Record<string, unknown>,
   ) {
+    setActing(true);
     setMessage("");
-    const res = await fetch(`/api/admin/registrations/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setMessage(data.error || "Update failed");
-      return;
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/registrations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Update failed");
+        return;
+      }
+      const updated = normalizeRegistration(data.registration);
+      setSelected(updated);
+      setNotes(updated.internalNotes || "");
+      setMessage(
+        data.warning ||
+          `Updated — ${updated.registrationStatus.replaceAll("_", " ")}, pay: ${updated.paymentStatus.replaceAll("_", " ")}`,
+      );
+      await load();
+    } catch {
+      setError("Network error — could not reach the server.");
+    } finally {
+      setActing(false);
     }
-    setMessage("Updated");
-    setSelected(data.registration);
-    await load();
   }
 
   function exportCsv() {
@@ -85,6 +113,11 @@ export function RegistrationsPanel({ tournamentId }: Props) {
     params.set("format", "csv");
     window.location.href = `/api/admin/registrations?${params}`;
   }
+
+  const alreadyApproved =
+    selected?.registrationStatus === "confirmed" &&
+    (selected.paymentStatus === "paid" ||
+      selected.paymentStatus === "not_applicable");
 
   return (
     <div className="space-y-4">
@@ -135,10 +168,6 @@ export function RegistrationsPanel({ tournamentId }: Props) {
         </button>
       </div>
 
-      {message ? (
-        <p className="text-sm text-leaf">{message}</p>
-      ) : null}
-
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <div className="overflow-hidden rounded-xl border border-ink/8 bg-white">
           <table className="w-full text-left text-sm">
@@ -172,6 +201,8 @@ export function RegistrationsPanel({ tournamentId }: Props) {
                     onClick={() => {
                       setSelected(r);
                       setNotes(r.internalNotes || "");
+                      setMessage("");
+                      setError("");
                     }}
                   >
                     <td className="px-3 py-2">
@@ -206,6 +237,18 @@ export function RegistrationsPanel({ tournamentId }: Props) {
                 {selected.playerSnapshot?.fullName}
               </h3>
               <p className="text-muted">{selected.registrationId}</p>
+              <p className="rounded-md bg-canvas px-3 py-2 text-xs">
+                <span className="font-medium">
+                  {selected.registrationStatus.replaceAll("_", " ")}
+                </span>
+                <span className="text-muted">
+                  {" "}
+                  · pay: {selected.paymentStatus.replaceAll("_", " ")}
+                  {selected.feeAmount > 0
+                    ? ` · fee ₹${selected.feeAmount}`
+                    : ""}
+                </span>
+              </p>
               <dl className="space-y-1">
                 <div>
                   <dt className="text-xs text-muted">Email</dt>
@@ -239,21 +282,40 @@ export function RegistrationsPanel({ tournamentId }: Props) {
                 />
               </label>
 
+              {error ? (
+                <p role="alert" className="text-sm font-medium text-red-600">
+                  {error}
+                </p>
+              ) : null}
+              {message ? (
+                <p role="status" className="text-sm font-medium text-leaf">
+                  {message}
+                </p>
+              ) : null}
+
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
+                  disabled={acting || alreadyApproved}
                   onClick={() =>
                     void updateRegistration(selected._id, {
                       registrationStatus: "confirmed",
+                      paymentStatus:
+                        selected.feeAmount > 0 ? "paid" : "not_applicable",
                       internalNotes: notes,
                     })
                   }
-                  className="rounded-md bg-leaf px-3 py-1.5 text-xs font-semibold text-white"
+                  className="rounded-md bg-leaf px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                 >
-                  Approve
+                  {acting
+                    ? "Working…"
+                    : alreadyApproved
+                      ? "Approved"
+                      : "Approve"}
                 </button>
                 <button
                   type="button"
+                  disabled={acting}
                   onClick={() =>
                     void updateRegistration(selected._id, {
                       registrationStatus: "rejected",
@@ -261,39 +323,42 @@ export function RegistrationsPanel({ tournamentId }: Props) {
                       rejectionReason: "Rejected by admin",
                     })
                   }
-                  className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white"
+                  className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                 >
                   Reject
                 </button>
                 <button
                   type="button"
+                  disabled={acting}
                   onClick={() =>
                     void updateRegistration(selected._id, {
                       registrationStatus: "waitlisted",
                       internalNotes: notes,
                     })
                   }
-                  className="rounded-md border border-ink/15 px-3 py-1.5 text-xs font-medium"
+                  className="rounded-md border border-ink/15 px-3 py-1.5 text-xs font-medium disabled:opacity-60"
                 >
                   Waitlist
                 </button>
                 <button
                   type="button"
+                  disabled={acting}
                   onClick={() =>
                     void updateRegistration(selected._id, {
                       internalNotes: notes,
                     })
                   }
-                  className="rounded-md border border-ink/15 px-3 py-1.5 text-xs font-medium"
+                  className="rounded-md border border-ink/15 px-3 py-1.5 text-xs font-medium disabled:opacity-60"
                 >
                   Save notes
                 </button>
                 <button
                   type="button"
+                  disabled={acting}
                   onClick={() =>
                     void updateRegistration(selected._id, { resendEmail: true })
                   }
-                  className="rounded-md border border-ink/15 px-3 py-1.5 text-xs font-medium"
+                  className="rounded-md border border-ink/15 px-3 py-1.5 text-xs font-medium disabled:opacity-60"
                 >
                   Resend email
                 </button>
