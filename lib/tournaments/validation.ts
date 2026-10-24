@@ -5,12 +5,22 @@ export type TournamentDateInput = {
   registrationClosesAt?: string | null;
   /** When editing an existing event that already started */
   allowPastStart?: boolean;
+  /** When editing, allow registration open/close that are already in the past */
+  allowPastRegistration?: boolean;
 };
 
 export type FieldErrors = Record<string, string>;
 
 function parseDate(value: string | null | undefined): Date | null {
   if (!value) return null;
+  // datetime-local values like 2026-10-24T15:00 — treat as local wall time
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) && !/[zZ]|[+-]\d{2}:\d{2}$/.test(value)) {
+    const [datePart, timePart] = value.split("T");
+    const [y, m, d] = datePart.split("-").map(Number);
+    const [hh, mm] = timePart.split(":").map(Number);
+    const local = new Date(y, m - 1, d, hh, mm || 0, 0, 0);
+    return Number.isNaN(local.getTime()) ? null : local;
+  }
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
 }
@@ -55,7 +65,12 @@ export function validateTournamentDates(
     errors.registrationClosesAt = "Enter a valid registration closing date.";
   }
 
-  if (opens && !input.allowPastStart && opens < today) {
+  if (
+    opens &&
+    !input.allowPastStart &&
+    !input.allowPastRegistration &&
+    opens < today
+  ) {
     errors.registrationOpensAt =
       "Registration opening date cannot be in the past.";
   }
@@ -90,4 +105,11 @@ export function toDatetimeLocalMin(from: Date = new Date()): string {
   const d = new Date(from);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Convert datetime-local wall time to ISO so the server stores the intended moment. */
+export function localInputToIso(value: string): string {
+  if (!value) return value;
+  const parsed = parseDate(value);
+  return parsed ? parsed.toISOString() : value;
 }

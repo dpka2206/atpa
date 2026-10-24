@@ -112,6 +112,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       registrationOpensAt: nextOpens,
       registrationClosesAt: nextCloses,
       allowPastStart,
+      allowPastRegistration: true,
     });
     if (!dateCheck.ok) {
       return NextResponse.json(

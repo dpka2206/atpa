@@ -90,28 +90,42 @@ export function assertStatusTransition(
   to: TournamentStatus,
 ) {
   if (from === to) return;
-  // Allow super-admin flexibility but block junk: no un-archive to draft via random jumps except via published path
+  // Practical admin jumps for Phase 1 (draft can go straight to registration_open for demos)
   const allowed: Record<TournamentStatus, TournamentStatus[]> = {
-    draft: ["published", "archived"],
-    published: ["draft", "registration_open", "archived"],
+    draft: ["published", "registration_open", "registration_closed", "archived"],
+    published: [
+      "draft",
+      "registration_open",
+      "registration_closed",
+      "archived",
+    ],
     registration_open: [
+      "draft",
       "published",
       "registration_closed",
+      "in_progress",
       "archived",
     ],
     registration_closed: [
       "registration_open",
       "draws_published",
       "in_progress",
+      "published",
       "archived",
     ],
-    draws_published: ["registration_closed", "in_progress", "archived"],
-    in_progress: ["completed", "archived"],
+    draws_published: [
+      "registration_closed",
+      "in_progress",
+      "archived",
+    ],
+    in_progress: ["completed", "registration_closed", "archived"],
     completed: ["archived", "in_progress"],
-    archived: ["draft"],
+    archived: ["draft", "published"],
   };
   if (!allowed[from]?.includes(to)) {
-    throw new Error(`Invalid status transition: ${from} → ${to}`);
+    throw new Error(
+      `Cannot change status from "${from.replaceAll("_", " ")}" to "${to.replaceAll("_", " ")}". Pick a nearby status and try again.`,
+    );
   }
 }
 

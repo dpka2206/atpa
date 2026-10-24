@@ -4,6 +4,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CATEGORY_TYPES, TOURNAMENT_STATUSES } from "@/lib/constants";
 import {
+  localInputToIso,
   toDatetimeLocalMin,
   validateTournamentDates,
   type FieldErrors,
@@ -44,6 +45,7 @@ function RequiredMark() {
 export function TournamentForm({ mode, tournamentId, initial }: Props) {
   const router = useRouter();
   const [formError, setFormError] = useState("");
+  const [formSuccess, setFormSuccess] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(String(initial?.name || ""));
@@ -130,6 +132,7 @@ export function TournamentForm({ mode, tournamentId, initial }: Props) {
       registrationOpensAt: payload.registrationOpensAt,
       registrationClosesAt: payload.registrationClosesAt,
       allowPastStart,
+      allowPastRegistration: mode === "edit",
     });
     if (!dateResult.ok) {
       Object.assign(errors, dateResult.errors);
@@ -141,6 +144,7 @@ export function TournamentForm({ mode, tournamentId, initial }: Props) {
     e.preventDefault();
     setSaving(true);
     setFormError("");
+    setFormSuccess("");
     setFieldErrors({});
     const form = new FormData(e.currentTarget);
     const payload = {
@@ -180,30 +184,55 @@ export function TournamentForm({ mode, tournamentId, initial }: Props) {
           "Please fix the highlighted fields before saving.",
       );
       setSaving(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+
+    const body = {
+      ...payload,
+      startDate: localInputToIso(payload.startDate),
+      endDate: localInputToIso(payload.endDate),
+      registrationOpensAt: payload.registrationOpensAt
+        ? localInputToIso(payload.registrationOpensAt)
+        : null,
+      registrationClosesAt: payload.registrationClosesAt
+        ? localInputToIso(payload.registrationClosesAt)
+        : null,
+    };
 
     const url =
       mode === "create"
         ? "/api/admin/tournaments"
         : `/api/admin/tournaments/${tournamentId}`;
-    const res = await fetch(url, {
-      method: mode === "create" ? "POST" : "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    setSaving(false);
-    if (!res.ok) {
-      if (data.fieldErrors && typeof data.fieldErrors === "object") {
-        setFieldErrors(data.fieldErrors as FieldErrors);
+    try {
+      const res = await fetch(url, {
+        method: mode === "create" ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      setSaving(false);
+      if (!res.ok) {
+        if (data.fieldErrors && typeof data.fieldErrors === "object") {
+          setFieldErrors(data.fieldErrors as FieldErrors);
+        }
+        setFormError(
+          data.error || "Could not save tournament. Please try again.",
+        );
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
       }
-      setFormError(data.error || "Could not save tournament. Please try again.");
-      return;
+      setFormSuccess(
+        `Saved. Status is now "${String(data.tournament?.status || body.status).replaceAll("_", " ")}".`,
+      );
+      const id = data.tournament?._id || tournamentId;
+      router.push(`/admin/tournaments/${id}`);
+      router.refresh();
+    } catch {
+      setSaving(false);
+      setFormError("Network error — could not reach the server. Try again.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
-    const id = data.tournament?._id || tournamentId;
-    router.push(`/admin/tournaments/${id}`);
-    router.refresh();
   }
 
   const inputClass =
@@ -225,6 +254,14 @@ export function TournamentForm({ mode, tournamentId, initial }: Props) {
           className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
         >
           {formError}
+        </div>
+      ) : null}
+      {formSuccess ? (
+        <div
+          role="status"
+          className="rounded-md border border-leaf/30 bg-leaf-soft px-4 py-3 text-sm text-leaf"
+        >
+          {formSuccess}
         </div>
       ) : null}
 
@@ -645,17 +682,30 @@ export function TournamentForm({ mode, tournamentId, initial }: Props) {
         </label>
       </section>
 
-      <button
-        type="submit"
-        disabled={saving}
-        className="rounded-md bg-ink px-5 py-2.5 text-sm font-semibold text-white hover:bg-ink-soft disabled:opacity-60"
-      >
-        {saving
-          ? "Saving…"
-          : mode === "create"
-            ? "Create tournament"
-            : "Save changes"}
-      </button>
+      <div className="sticky bottom-0 z-10 space-y-3 border-t border-ink/10 bg-canvas/95 py-4 backdrop-blur">
+        {formError ? (
+          <p className="text-sm font-medium text-red-600">{formError}</p>
+        ) : null}
+        {formSuccess ? (
+          <p className="text-sm font-medium text-leaf">{formSuccess}</p>
+        ) : null}
+        <p className="text-xs text-muted">
+          To accept public registrations: set Status to{" "}
+          <strong>registration open</strong>, fill registration open/close
+          dates, then Save.
+        </p>
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-md bg-ink px-5 py-2.5 text-sm font-semibold text-white hover:bg-ink-soft disabled:opacity-60"
+        >
+          {saving
+            ? "Saving…"
+            : mode === "create"
+              ? "Create tournament"
+              : "Save changes"}
+        </button>
+      </div>
     </form>
   );
 }
