@@ -184,7 +184,7 @@ export function TournamentForm({ mode, tournamentId, initial }: Props) {
           "Please fix the highlighted fields before saving.",
       );
       setSaving(false);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      scrollFormAlertsIntoView();
       return;
     }
 
@@ -219,19 +219,30 @@ export function TournamentForm({ mode, tournamentId, initial }: Props) {
         setFormError(
           data.error || "Could not save tournament. Please try again.",
         );
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        scrollFormAlertsIntoView();
         return;
       }
       setFormSuccess(
         `Saved. Status is now "${String(data.tournament?.status || body.status).replaceAll("_", " ")}".`,
       );
+      scrollFormAlertsIntoView();
       const id = data.tournament?._id || tournamentId;
       router.push(`/admin/tournaments/${id}`);
       router.refresh();
     } catch {
       setSaving(false);
       setFormError("Network error — could not reach the server. Try again.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      scrollFormAlertsIntoView();
+    }
+  }
+
+  function scrollFormAlertsIntoView() {
+    const el = document.getElementById("tournament-form-actions");
+    const scroller = el?.closest(".overflow-auto") as HTMLElement | null;
+    if (scroller) {
+      scroller.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
 
@@ -246,24 +257,51 @@ export function TournamentForm({ mode, tournamentId, initial }: Props) {
 
   const previewSrc = posterUrl || bannerUrl;
 
+  const saveButton = (
+    <button
+      type="submit"
+      disabled={saving}
+      className="rounded-md bg-ink px-5 py-2.5 text-sm font-semibold text-white hover:bg-ink-soft disabled:opacity-60"
+    >
+      {saving
+        ? "Saving…"
+        : mode === "create"
+          ? "Create tournament"
+          : "Save changes"}
+    </button>
+  );
+
   return (
-    <form onSubmit={onSubmit} className="space-y-8" noValidate>
-      {formError ? (
-        <div
-          role="alert"
-          className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-        >
-          {formError}
+    <form onSubmit={onSubmit} className="space-y-8 pb-8" noValidate>
+      <div
+        id="tournament-form-actions"
+        className="sticky top-0 z-20 -mx-6 mb-2 space-y-3 border-b border-ink/10 bg-canvas/95 px-6 py-3 backdrop-blur"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-xl text-xs text-muted">
+            To accept public registrations: set Status to{" "}
+            <strong>registration open</strong>, fill registration open/close
+            dates, then Save.
+          </p>
+          {saveButton}
         </div>
-      ) : null}
-      {formSuccess ? (
-        <div
-          role="status"
-          className="rounded-md border border-leaf/30 bg-leaf-soft px-4 py-3 text-sm text-leaf"
-        >
-          {formSuccess}
-        </div>
-      ) : null}
+        {formError ? (
+          <div
+            role="alert"
+            className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {formError}
+          </div>
+        ) : null}
+        {formSuccess ? (
+          <div
+            role="status"
+            className="rounded-md border border-leaf/30 bg-leaf-soft px-4 py-3 text-sm text-leaf"
+          >
+            {formSuccess}
+          </div>
+        ) : null}
+      </div>
 
       <section className="grid gap-4 rounded-xl border border-ink/8 bg-white p-5 md:grid-cols-2">
         <h2 className="font-display text-lg md:col-span-2">Basics</h2>
@@ -682,29 +720,8 @@ export function TournamentForm({ mode, tournamentId, initial }: Props) {
         </label>
       </section>
 
-      <div className="sticky bottom-0 z-10 space-y-3 border-t border-ink/10 bg-canvas/95 py-4 backdrop-blur">
-        {formError ? (
-          <p className="text-sm font-medium text-red-600">{formError}</p>
-        ) : null}
-        {formSuccess ? (
-          <p className="text-sm font-medium text-leaf">{formSuccess}</p>
-        ) : null}
-        <p className="text-xs text-muted">
-          To accept public registrations: set Status to{" "}
-          <strong>registration open</strong>, fill registration open/close
-          dates, then Save.
-        </p>
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-md bg-ink px-5 py-2.5 text-sm font-semibold text-white hover:bg-ink-soft disabled:opacity-60"
-        >
-          {saving
-            ? "Saving…"
-            : mode === "create"
-              ? "Create tournament"
-              : "Save changes"}
-        </button>
+      <div className="flex justify-end border-t border-ink/10 pt-4">
+        {saveButton}
       </div>
     </form>
   );
